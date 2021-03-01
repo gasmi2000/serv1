@@ -1,0 +1,58 @@
+#image: maven:3-jdk-8
+#build:
+#  stage: build
+#  script: "cp -f ./settings.xml $MAVEN_HOME/conf/ && keytool -import -file ./cert.crt -keystore $JAVA_HOME/jre/lib/security/cacerts -storepass changeit -noprompt && mvn package && ls /builds/Ramzy/ttn-api-ws-rest/target/"
+#  artifacts:
+#    expire_in: 1 week
+#    when: on_success
+#    paths:
+#    - target/*.jar
+
+#deploy:
+#  stage: deploy
+#  script: "docker build -t ttn-api-commercial-image && docker run -p8180:8180 ttn-api-commercial-image"
+
+
+image: docker:latest  #1
+variables:  #2
+  TAG: root/ttn-api-commercial-image
+  DOCKER_DRIVER: overlay2
+  DOCKER_HOST: tcp://192.168.2.12  # docker host
+cache:  #3
+  paths:
+    - .m2/repository
+services:  #4
+  - docker:dind
+stages:  #5
+  - package
+  - deploy
+maven-package:  #6
+  image: maven:3.5-jdk-8-alpine
+  stage: package
+  script:
+    - cp -f ./settings.xml $MAVEN_HOME/conf/ && keytool -import -file ./cert.crt -keystore $JAVA_HOME/jre/lib/security/cacerts -storepass changeit -noprompt && mvn package
+  artifacts:
+    paths:
+      - target/*.jar
+
+deploy_to_docker:
+  stage: deploy
+  script: "docker build -t ttn-api-commercial-image && docker run -p8180:8180 ttn-api-commercial-image"
+
+
+deploy_pre_production:
+  only:
+    refs:
+      - master
+  stage: deploy
+  before_script:
+  - export http_proxy=http://192.168.1.115:8888
+  - export https_proxy=http://192.168.1.115:8888
+  - apk add sshpass rsync
+  script:
+    - cd target/
+    - ls
+    - sshpass -V
+    - export SSHPASS=root
+    - sshpass -e rsync -r --omit-dir-times -e "ssh -o StrictHostKeyChecking=no" . root@192.168.2.179:/root/ws-ttn-api/
+
